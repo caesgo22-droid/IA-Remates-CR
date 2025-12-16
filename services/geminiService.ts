@@ -94,25 +94,38 @@ const propertySchema = {
   }
 };
 
-const SYSTEM_INSTRUCTION = `Eres un experto analista de edictos judiciales de Costa Rica. Tu misión es extraer datos estructurados con alta precisión geográfica.
+const SYSTEM_INSTRUCTION = `Eres un experto analista legal de remates judiciales en Costa Rica. Tu misión es extraer datos estructurados siguiendo estrictamente la estructura del edicto judicial.
 
-Reglas de Extracción CRÍTICAS:
-1.  **UBICACIÓN GEOGRÁFICA:**
-    *   **PROVINCIA:** [San José, Alajuela, Cartago, Heredia, Guanacaste, Puntarenas, Limón].
-    *   **IMPORTANTE:** Si la provincia NO está explícita, DEBES inferirla basada en el **CANTÓN**, **DISTRITO** o el nombre del **JUZGADO** mencionado (ej: "Juzgado de Pococí" -> Pococí es Limón; "Cantón de Grecia" -> Alajuela).
-    *   NO uses "Desconocido" a menos que no haya absolutamente ninguna mención de lugar.
+### GUÍA DE LECTURA E INTERPRETACIÓN:
+1. **DELIMITACIÓN**: Un remate suele iniciar con "En este Despacho" (o similar) y finaliza obligatoriamente con un "Referencia N°: [número]". Todo el texto entre esos puntos es un único registro.
+2. **EXPEDIENTE**: Busca "Expediente:" seguido de la nomenclatura (ej: 25-002358-1204-CJ).
+3. **UBICACIÓN (CRÍTICO)**:
+   - Patrón: "Situada en el DISTRITO [nombre], CANTÓN [nombre], de la provincia de [PROVINCIA]".
+   - SIEMPRE extrae Provincia y Cantón. Si no está explícito en la descripción de la finca, infiérelo del nombre del JUZGADO.
+4. **BIEN A REMATAR**:
+   - **ID Finca**: Busca "matrícula número" o "finca". Si el número tiene "-F-" (ej: 8755-F-000), marca 'esCondominio': true (Finca Filial).
+   - **Medida**: Busca "MIDE:" seguido del texto. Extrae el valor.
+   - **Descripción**: Busca "COLINDA:" para contexto, pero resume qué es el bien.
+5. **PRECIOS Y FECHAS (MULTIPLE ETAPAS)**:
+   - **1er Remate (Base)**: Se identifica por "con una base de" al inicio. Fecha: "Para tal efecto, se señalan las...".
+   - **2do Remate (75%)**: Busca "el segundo remate se efectuará... con la base de". Fecha: "se efectuará a las...".
+   - **3er Remate (25%)**: Busca "para el tercer remate se señalan... con la base de". Fecha: "se señalan las...".
+   
+### SALIDA:
+- **precioBaseNumerico**: El valor numérico del 1er remate.
+- **moneda**: CRC o USD.
+- **riesgos**: Busca "gravámenes", "servidumbre", "usufructo", "anotaciones".
+- **textoEspecifico**: Breve extracto relevante del original.
 
-2.  **CANTÓN:** Extrae el cantón claramente.
-3.  **NUMERO EXPEDIENTE:** Formatos "Referencia N°", "EXP", "Expediente".
-4.  **PRECIO BASE:** El valor numérico.
-5.  **FECHAS:** Formato YYYY-MM-DD.
-6.  **TIPO BIEN:** 'Propiedad' (Fincas, Lotes, Casas), 'Vehículo', 'Mueble', 'Otro'.
-7.  **RIESGOS:** Busca palabras clave: "Ocupado", "Gravamenes", "Servidumbres".
-
-Ignora encabezados administrativos irrelevantes.`;
+Ignora encabezados administrativos que no contengan datos del bien.`;
 
 const intelligentSegmentation = (fullText: string): string[] => {
-  const splitPattern = /(?=(?:^|\n)\s*(?:Expediente|EXP|Exp|JUZGADO|AL MONTO DE|SE HACE SABER|Referencia N°)\s*[:Nº#])/i;
+  // SEGMENTACIÓN MEJORADA:
+  // La guía indica que "Referencia N°" es el FINAL del remate.
+  // Por lo tanto, cortamos usando "positive lookahead" buscando el INICIO típico de un nuevo bloque
+  // (Expediente, En este Despacho, Juzgado) y NO cortamos en Referencia N° para no separar ese ID de su bloque.
+  
+  const splitPattern = /(?=(?:^|\n)\s*(?:En este Despacho|Expediente|EXP|JUZGADO|AL MONTO DE|SE HACE SABER)\s*[:Nº#])/i;
   const rawSegments = fullText.split(splitPattern).filter(s => s.length > 50);
 
   if (rawSegments.length === 0 && fullText.length > 50) return [fullText];
@@ -164,7 +177,7 @@ export const extractPropertiesFromText = async (fullText: string): Promise<Prope
     try {
       const response = await generateWithRetry(ai.models, {
         model: 'gemini-2.5-flash',
-        contents: `Extrae datos de estos edictos:\n\n${chunks[i]}`,
+        contents: `Analiza estos edictos judiciales y extrae los datos siguiendo la guía estructural:\n\n${chunks[i]}`,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
           responseMimeType: "application/json",
