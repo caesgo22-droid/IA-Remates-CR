@@ -1,0 +1,5 @@
+{
+  "name": "Extractor de Remates Judiciales",
+  "description": "Herramienta para inversionistas que procesa boletines judiciales con IA, extrae remates y gestiona oportunidades.",
+  "requestFramePermissions": []
+}
