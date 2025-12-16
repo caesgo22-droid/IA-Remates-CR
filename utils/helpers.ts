@@ -4,19 +4,24 @@ import { Property } from '../types';
 
 // --- ROBUST JSON PARSER ---
 export const cleanAndParseJSON = (text: string): any => {
-  if (!text) return {};
+  if (!text) return { items: [] };
   
-  let cleanText = text;
+  let cleanText = text.trim();
 
-  // 1. Eliminar bloques de código Markdown
-  cleanText = cleanText.replace(/```json/gi, '').replace(/```/g, '');
+  // 1. Eliminar bloques de código Markdown comunes
+  cleanText = cleanText.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
 
-  // 2. Encontrar el bloque JSON válido más externo
-  const firstOpen = cleanText.indexOf('{');
-  const lastClose = cleanText.lastIndexOf('}');
-
-  if (firstOpen !== -1 && lastClose !== -1) {
-    cleanText = cleanText.substring(firstOpen, lastClose + 1);
+  // 2. Encontrar el bloque JSON válido más externo (Objeto {} o Array [])
+  const firstOpenBrace = cleanText.indexOf('{');
+  const lastCloseBrace = cleanText.lastIndexOf('}');
+  
+  // Si encontramos un objeto JSON válido
+  if (firstOpenBrace !== -1 && lastCloseBrace !== -1) {
+    cleanText = cleanText.substring(firstOpenBrace, lastCloseBrace + 1);
+  } else {
+    // Si no hay estructura JSON clara, asumimos respuesta vacía segura para no romper la UI
+    console.warn("⚠️ No se detectó estructura JSON en la respuesta de la IA. Retornando vacío.");
+    return { items: [] };
   }
 
   // 3. Limpieza preventiva de errores comunes de LLMs
@@ -26,15 +31,20 @@ export const cleanAndParseJSON = (text: string): any => {
   try {
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("Failed to parse JSON from AI:", text);
+    console.error("Failed to parse JSON from AI. Raw text:", text);
     // Segundo intento agresivo para JSON malformados
     try {
-        // Intenta corregir comillas simples a dobles si la IA se equivocó
-        // Nota: Esto es riesgoso si el texto contiene comillas simples reales, pero útil como fallback
-        const fixedQuotes = cleanText.replace(/'/g, '"');
-        return JSON.parse(fixedQuotes);
+        // Intento de reparación simple de comillas (riesgoso pero útil como último recurso)
+        // Solo si parece que usó comillas simples para claves
+        if (cleanText.includes("'")) {
+             const fixedQuotes = cleanText.replace(/'/g, '"');
+             return JSON.parse(fixedQuotes);
+        }
+        throw e;
     } catch (e2) {
-        throw new Error("La IA generó una respuesta con formato inválido. Por favor intenta procesar de nuevo.");
+        // En lugar de lanzar error que detenga todo, devolvemos vacío y logueamos
+        console.error("JSON totalmente inválido. Omitiendo este chunk.");
+        return { items: [] };
     }
   }
 };
@@ -125,16 +135,14 @@ export const formatMeasurement = (text: string | number | null | undefined) => {
   // Limpiar texto basura común
   const cleanText = strText.replace(/MIDE[:\s]*/i, '').replace(/AREA[:\s]*/i, '');
   
-  // Regex mejorado: Busca números que probablemente sean áreas (evita fechas o números de finca si es posible)
-  // Busca: digitos + (opcional punto/coma y digitos) + opcional espacios + m2 o metros
+  // Regex mejorado
   const match = cleanText.match(/(\d+(?:[.,]\d+)?)\s*(?:m2|mts|metros)?/i);
   
   if (match && match[1]) {
-      // Normalizar: reemplazar coma por punto para consistencia visual si se desea, o dejar tal cual
       return `${match[1]} m²`;
   }
   
-  // Fallback: Si solo hay números en el string, devolver eso
+  // Fallback
   if (/^\d+(?:[.,]\d+)?$/.test(cleanText.trim())) {
       return `${cleanText.trim()} m²`;
   }

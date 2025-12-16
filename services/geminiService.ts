@@ -117,7 +117,8 @@ const SYSTEM_INSTRUCTION = `Eres un experto analista legal de remates judiciales
 - **riesgos**: Busca "gravámenes", "servidumbre", "usufructo", "anotaciones".
 - **textoEspecifico**: Breve extracto relevante del original.
 
-Ignora encabezados administrativos que no contengan datos del bien.`;
+Ignora encabezados administrativos que no contengan datos del bien.
+**IMPORTANTE**: Si el texto proporcionado está incompleto, es ilegible o no contiene un edicto de remate válido, debes devolver obligatoriamente un JSON válido vacío: { "items": [] }. NO respondas con texto plano explicativo.`;
 
 const intelligentSegmentation = (fullText: string): string[] => {
   // SEGMENTACIÓN MEJORADA:
@@ -186,6 +187,7 @@ export const extractPropertiesFromText = async (fullText: string): Promise<Prope
         }
       });
 
+      // Ahora cleanAndParseJSON es seguro y no lanza errores por texto vacío/inválido
       const json = cleanAndParseJSON(response.text || '{}');
       const items = json.items || [];
       
@@ -206,7 +208,8 @@ export const extractPropertiesFromText = async (fullText: string): Promise<Prope
 
       allProperties = [...allProperties, ...mappedItems];
     } catch (error) {
-      console.error("Error processing chunk:", error);
+      // Log simple, no rompe el flujo de los otros chunks
+      console.warn("⚠️ Hubo un problema procesando un fragmento del texto (posiblemente irrelevante).");
     }
     if (i < chunks.length - 1) await wait(1000);
   }
