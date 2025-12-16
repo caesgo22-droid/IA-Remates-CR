@@ -13,19 +13,32 @@ export const cleanAndParseJSON = (text: string): any => {
 
   // 2. Encontrar el bloque JSON válido más externo (Objeto {} o Array [])
   const firstOpenBrace = cleanText.indexOf('{');
-  const lastCloseBrace = cleanText.lastIndexOf('}');
+  const firstOpenBracket = cleanText.indexOf('[');
   
-  // Si encontramos un objeto JSON válido
-  if (firstOpenBrace !== -1 && lastCloseBrace !== -1) {
-    cleanText = cleanText.substring(firstOpenBrace, lastCloseBrace + 1);
+  let start = -1;
+  let end = -1;
+
+  // Determinamos si empieza por { o [ para saber qué buscar al final
+  if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
+      // Es un Objeto
+      start = firstOpenBrace;
+      end = cleanText.lastIndexOf('}');
+  } else if (firstOpenBracket !== -1) {
+      // Es un Array
+      start = firstOpenBracket;
+      end = cleanText.lastIndexOf(']');
+  }
+
+  // Si encontramos inicio y fin válidos, recortamos
+  if (start !== -1 && end !== -1) {
+    cleanText = cleanText.substring(start, end + 1);
   } else {
-    // Si no hay estructura JSON clara, asumimos respuesta vacía segura para no romper la UI
-    console.warn("⚠️ No se detectó estructura JSON en la respuesta de la IA. Retornando vacío.");
+    // Si no hay estructura JSON clara
+    console.warn("⚠️ No se detectó estructura JSON (ni {} ni []) en la respuesta. Retornando vacío.");
     return { items: [] };
   }
 
   // 3. Limpieza preventiva de errores comunes de LLMs
-  // Elimina comas antes de cierres de array/objeto: ", ]" -> "]" y ", }" -> "}"
   cleanText = cleanText.replace(/,(\s*[}\]])/g, '$1');
 
   try {
@@ -34,15 +47,12 @@ export const cleanAndParseJSON = (text: string): any => {
     console.error("Failed to parse JSON from AI. Raw text:", text);
     // Segundo intento agresivo para JSON malformados
     try {
-        // Intento de reparación simple de comillas (riesgoso pero útil como último recurso)
-        // Solo si parece que usó comillas simples para claves
         if (cleanText.includes("'")) {
              const fixedQuotes = cleanText.replace(/'/g, '"');
              return JSON.parse(fixedQuotes);
         }
         throw e;
     } catch (e2) {
-        // En lugar de lanzar error que detenga todo, devolvemos vacío y logueamos
         console.error("JSON totalmente inválido. Omitiendo este chunk.");
         return { items: [] };
     }

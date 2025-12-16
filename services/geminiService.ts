@@ -187,9 +187,16 @@ export const extractPropertiesFromText = async (fullText: string): Promise<Prope
         }
       });
 
-      // Ahora cleanAndParseJSON es seguro y no lanza errores por texto vacío/inválido
+      // Parseo robusto
       const json = cleanAndParseJSON(response.text || '{}');
-      const items = json.items || [];
+      
+      // Normalización: Manejar tanto { items: [] } como [ ... ]
+      let items = [];
+      if (Array.isArray(json)) {
+          items = json;
+      } else if (json && Array.isArray(json.items)) {
+          items = json.items;
+      }
       
       const mappedItems = items.map((item: any) => ({
         ...item,
