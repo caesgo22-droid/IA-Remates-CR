@@ -32,6 +32,9 @@ export const cleanAndParseJSON = (text: string): any => {
   // Si encontramos inicio y fin válidos, recortamos
   if (start !== -1 && end !== -1) {
     cleanText = cleanText.substring(start, end + 1);
+  } else if (start !== -1) {
+      // Si encontramos inicio pero NO fin (truncado), tomamos desde el inicio hasta el final del string
+      cleanText = cleanText.substring(start);
   } else {
     // Si no hay estructura JSON clara
     console.warn("⚠️ No se detectó estructura JSON (ni {} ni []) en la respuesta. Retornando vacío.");
@@ -44,16 +47,34 @@ export const cleanAndParseJSON = (text: string): any => {
   try {
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("Failed to parse JSON from AI. Raw text:", text);
-    // Segundo intento agresivo para JSON malformados
+    console.warn("Failed to parse JSON initially. Attempting repair...", e);
+    
+    // INTENTO DE REPARACIÓN DE JSON TRUNCADO
     try {
-        if (cleanText.includes("'")) {
-             const fixedQuotes = cleanText.replace(/'/g, '"');
+        let repaired = cleanText.trim();
+        // Si empieza con [ y no termina con ], le agregamos ]
+        if (repaired.startsWith('[') && !repaired.endsWith(']')) {
+             // Intento simple: cerrar array
+             return JSON.parse(repaired + ']');
+        }
+        // Si empieza con { y no termina con }, le agregamos } o ]}
+        if (repaired.startsWith('{') && !repaired.endsWith('}')) {
+             // Si parece que estaba dentro de "items": [ ...
+             if (repaired.includes('"items"') && !repaired.includes(']}')) {
+                 return JSON.parse(repaired + ']}');
+             }
+             return JSON.parse(repaired + '}');
+        }
+        
+        // Si aún falla, intentamos arreglar comillas simples
+        if (repaired.includes("'")) {
+             const fixedQuotes = repaired.replace(/'/g, '"');
              return JSON.parse(fixedQuotes);
         }
+
         throw e;
     } catch (e2) {
-        console.error("JSON totalmente inválido. Omitiendo este chunk.");
+        console.error("JSON totalmente inválido (incluso tras reparación). Omitiendo este chunk.");
         return { items: [] };
     }
   }

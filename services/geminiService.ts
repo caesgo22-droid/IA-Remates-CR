@@ -24,8 +24,9 @@ const getApiKey = () => {
   return key;
 };
 
+// REDUCIDO: 12000 chars para asegurar que la respuesta JSON quepa en el token limit
 const BATCH_SIZE = 1;
-const CHUNK_LIMIT = 25000;
+const CHUNK_LIMIT = 12000;
 
 const compressText = (text: string): string => {
   return text.replace(/\s+/g, ' ').trim();
@@ -118,15 +119,14 @@ const SYSTEM_INSTRUCTION = `Eres un experto analista legal de remates judiciales
 - **textoEspecifico**: Breve extracto relevante del original.
 
 Ignora encabezados administrativos que no contengan datos del bien.
-**IMPORTANTE**: Si el texto proporcionado está incompleto, es ilegible o no contiene un edicto de remate válido, debes devolver obligatoriamente un JSON válido vacío: { "items": [] }. NO respondas con texto plano explicativo.`;
+**IMPORTANTE**: Debes devolver un objeto JSON válido con la propiedad "items". Si no hay datos, devuelve { "items": [] }. NO devuelvas texto plano.`;
 
 const intelligentSegmentation = (fullText: string): string[] => {
   // SEGMENTACIÓN MEJORADA:
-  // La guía indica que "Referencia N°" es el FINAL del remate.
-  // Por lo tanto, cortamos usando "positive lookahead" buscando el INICIO típico de un nuevo bloque
-  // (Expediente, En este Despacho, Juzgado) y NO cortamos en Referencia N° para no separar ese ID de su bloque.
+  // Usa \s (whitespace) en lugar de solo \n para soportar textos copiados con formato extraño.
+  // Busca patrones clave de inicio de remate.
+  const splitPattern = /(?=(?:^|[\r\n]|\s)(?:En este Despacho|Expediente|EXP|JUZGADO|AL MONTO DE|SE HACE SABER)\s*[:Nº#])/i;
   
-  const splitPattern = /(?=(?:^|\n)\s*(?:En este Despacho|Expediente|EXP|JUZGADO|AL MONTO DE|SE HACE SABER)\s*[:Nº#])/i;
   const rawSegments = fullText.split(splitPattern).filter(s => s.length > 50);
 
   if (rawSegments.length === 0 && fullText.length > 50) return [fullText];
@@ -136,11 +136,13 @@ const intelligentSegmentation = (fullText: string): string[] => {
 
   for (const segment of rawSegments) {
     const compressed = compressText(segment);
+    // Verificar si agregar este segmento excede el límite
     if (compressed.length > CHUNK_LIMIT) {
+        // Si el segmento por sí mismo es gigante, lo forzamos a ser un chunk (o se podría cortar más, pero asumimos que cabe en API limit)
         if (currentChunk) { mergedChunks.push(currentChunk); currentChunk = ""; }
         mergedChunks.push(compressed);
     } else if (currentChunk.length + compressed.length < CHUNK_LIMIT) {
-      currentChunk += "\n" + compressed;
+      currentChunk += (currentChunk ? "\n\n" : "") + compressed;
     } else {
       mergedChunks.push(currentChunk);
       currentChunk = compressed;
